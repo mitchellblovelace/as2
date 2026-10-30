@@ -6,8 +6,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include "hal/periodTimer.h"
+#include <assert.h>
+
 
 #define MAX_SAMPLES_PER_SECOND 2000
+
+static void* sampling_thread(void *arg);
 
 static pthread_t sampling_thread_id;
 static pthread_mutex_t data_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -102,8 +107,11 @@ long long Sampler_getNumSamplesTaken(void)
 
 static void* sampling_thread(void *arg) 
 {
+    (void)arg;
     struct timespec sleep_time = {0, 500000}; // 0.5ms sleep/wait time 
     while(is_initialized) {
+        Period_markEvent(PERIOD_EVENT_SAMPLE_LIGHT);
+
         // read current light level
         double curr_light = ADC_getVoltageReading();
 

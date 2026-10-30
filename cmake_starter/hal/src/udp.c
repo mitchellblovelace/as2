@@ -19,6 +19,7 @@ static char last_command[BUFFER_SIZE] = "";
 extern bool program_running; 
 
 static void* udp_thread_function(void* arg) {
+    (void)arg;
     struct sockaddr_in sin; // sin is the socket address structure for the UDP socket
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
@@ -64,11 +65,11 @@ static void* udp_thread_function(void* arg) {
             snprintf(reply, BUFFER_SIZE, "Accepted commands:\ncount\nlength\ndips\nhistory\nstop\n<enter>\n");
             sendto(socket_descriptor, reply, strlen(reply), 0, (struct sockaddr*)&sinRemote, sinRemoteLen);
         } else if (strncmp(message_rx, "count", 5) == 0) {
-            long long num_samples = Sampler_getNumSamplesTaken();
+            //long long num_samples = Sampler_getNumSamplesTaken(); 
             snprintf(reply, BUFFER_SIZE, "Total samples taken: %lld\n", Sampler_getNumSamplesTaken());
             sendto(socket_descriptor, reply, strlen(reply), 0, (struct sockaddr*)&sinRemote, sinRemoteLen);
         } else if (strncmp(message_rx, "length", 6) == 0) {
-            int history_size = Sampler_getHistorySize();
+            //int history_size = Sampler_getHistorySize();
             snprintf(reply, BUFFER_SIZE, "Number of samples in history: %d\n", Sampler_getHistorySize());
             sendto(socket_descriptor, reply, strlen(reply), 0, (struct sockaddr*)&sinRemote, sinRemoteLen);
         } else if (strncmp(message_rx, "dips", 4) == 0) {
@@ -120,7 +121,7 @@ static void* udp_thread_function(void* arg) {
             sendto(socket_descriptor, reply, strlen(reply), 0, (struct sockaddr*)&sinRemote, sinRemoteLen);
             program_running = false; // signal main loop to stop
         } else {
-            snprintf(reply, BUFFER_SIZE, "Unknown command: %s\n", message_rx);
+            snprintf(reply, BUFFER_SIZE, "Unknown command: %.100s\n", message_rx);
             sendto(socket_descriptor, reply, strlen(reply), 0, (struct sockaddr*)&sinRemote, sinRemoteLen);
         }
 

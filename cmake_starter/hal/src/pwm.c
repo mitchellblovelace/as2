@@ -10,7 +10,7 @@ static void write_to_file(const char* path, const char* value) {
         perror("Unable to open file");
         exit(1);
     }
-    fprintf(f, "%d", value);
+    fprintf(f, "%s", value);
     fclose(f);
 }
 
@@ -31,18 +31,22 @@ void PWM_setFreq(int hz) {
 
     if (hz <= 0) {
         // turn off led 
-        write_to_file(enable_path, 0);
+        write_to_file(enable_path, "0");
         return;
     }
 
     int period_ns = 1000000000 / hz; // period in nanoseconds
     int duty_cycle_ns = period_ns / 2; // 50% duty cycle
 
-    write_to_file(period_path, period_ns);
+    char buffer1[32], buffer2[32];
+    sprintf(buffer1, "%d", period_ns);
+    sprintf(buffer2, "%d", duty_cycle_ns);
+    
+    write_to_file(period_path, buffer1);
 
-    write_to_file(duty_cycle_path, 0);
-    write_to_file(period_path, period_ns); // write twice to ensure proper update
-    write_to_file(duty_cycle_path, duty_cycle_ns); // write twice to ensure proper update
+    write_to_file(duty_cycle_path, "0");
+    write_to_file(period_path, buffer1); // write twice to ensure proper update
+    write_to_file(duty_cycle_path, buffer2); // write twice to ensure proper update
 
 
 }
@@ -50,5 +54,5 @@ void PWM_setFreq(int hz) {
 void PWM_cleanup(void) {
     char enable_path[128];
     snprintf(enable_path, sizeof(enable_path), "%s/enable", PWM_DIR);
-    write_to_file(enable_path, 0); // disable PWM
+    write_to_file(enable_path, "0"); // disable PWM
 }

@@ -11,10 +11,11 @@
 static pthread_t terminal_thread_id;
 static bool is_initialized = false;
 
-extern int Rotary_getFrequency(void);
+extern int encoder_getFrequency(void);
 extern int Sampler_getDips(double* history, int size, double curr_avg);
 
 static void* terminal_thread(void* arg) {
+    (void)arg;
     while (is_initialized) {
         Sampler_moveCurrentDataToHistory();
 
@@ -24,7 +25,7 @@ static void* terminal_thread(void* arg) {
         int dips = Sampler_getDips(history, size, avg_light);
 
         // implement in 1.5
-        int pwm = Rotary_getFrequency();
+        int pwm = encoder_getFrequency();
 
         Period_statistics_t stats;
         Period_getStatisticsAndClear(PERIOD_EVENT_SAMPLE_LIGHT, &stats);

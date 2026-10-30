@@ -45,7 +45,5 @@ int Sampler_getDips(double* history, int size, double curr_avg);
 // read light levels from hardware
 extern double read_light_level(void);
 
-// thread function 
-static void* sampling_thread(void* arg);
 
 #endif
