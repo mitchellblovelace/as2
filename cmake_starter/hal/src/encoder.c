@@ -6,10 +6,14 @@
 #include <pthread.h>
 #include <gpiod.h>
 #include <time.h>
+#include "hal/pwm.h"
+#include <stdint.h>
 
 #define MIN_FREQ 0
 #define MAX_FREQ 500
 #define INIT_FREQ 10
+#define DEBOUNCE_US 3000             
+#define MIN_CLICK_GAP_NS 5000000ULL
 
 
 static struct gpiod_chip *chip = NULL;
@@ -27,12 +31,9 @@ static void updateFrequency(int change) {
     int newFrequency = frequency + change;
     if (newFrequency >= MIN_FREQ && newFrequency <= MAX_FREQ) {
         frequency = newFrequency;
+        PWM_setFreq(frequency);
     }
     pthread_mutex_unlock(&freqMutex);
-}
-
-static long getTimeDiffMs(struct timespec start, struct timespec end) {
-    return (end.tv_sec - start.tv_sec)*1000 + (end.tv_nsec - start.tv_nsec)/1000000;
 }
 
 static void* encoderThreadLoop(void* arg) {
@@ -43,8 +44,8 @@ static void* encoderThreadLoop(void* arg) {
         return NULL;
     }
 
-    struct timespec lastTime;
-    clock_gettime(CLOCK_MONOTONIC, &lastTime);
+    int levelB = (gpiod_line_request_get_value(request, pinB_offset) == GPIOD_LINE_VALUE_ACTIVE);
+    uint64_t lastClickNs = 0;
 
     while (running) {
         int waitResult = gpiod_line_request_wait_edge_events(request, 100000000);
@@ -53,7 +54,7 @@ static void* encoderThreadLoop(void* arg) {
             break;
         } else if (waitResult == 0) {
             continue;
-        } 
+        }
 
         int num_events = gpiod_line_request_read_edge_events(request, buffer, 16);
         if (num_events < 0) {
@@ -65,36 +66,25 @@ static void* encoderThreadLoop(void* arg) {
             struct gpiod_edge_event *event = gpiod_edge_event_buffer_get_event(buffer, i);
             if (!event) continue;
 
-            if ((int)gpiod_edge_event_get_line_offset(event) != pinA_offset) {
-                continue;
-            }
-
-            struct timespec currentTime;
-            clock_gettime(CLOCK_MONOTONIC, &currentTime);
-            if (getTimeDiffMs(lastTime, currentTime) < 3) {
-                continue;
-            }
-            lastTime = currentTime;
-
+            int offset = (int)gpiod_edge_event_get_line_offset(event);
             enum gpiod_edge_event_type type = gpiod_edge_event_get_event_type(event);
-            enum gpiod_line_value valB = gpiod_line_request_get_value(request, pinB_offset);
 
-            if (type == GPIOD_EDGE_EVENT_RISING_EDGE) {
-                if (valB == GPIOD_LINE_VALUE_INACTIVE) {
-                   updateFrequency(1);
+            if (offset == pinB_offset) {
+                levelB = (type == GPIOD_EDGE_EVENT_RISING_EDGE);
+            } else if (offset == pinA_offset && type == GPIOD_EDGE_EVENT_FALLING_EDGE) {
+                uint64_t nowNs = gpiod_edge_event_get_timestamp_ns(event);
+                if (nowNs - lastClickNs < MIN_CLICK_GAP_NS) {
+                    continue;
+                }
+                lastClickNs = nowNs;
+
+                if (levelB) {
+                    updateFrequency(1);
                 } else {
                     updateFrequency(-1);
                 }
-            } else if (type == GPIOD_EDGE_EVENT_FALLING_EDGE) {
-                if (valB == GPIOD_LINE_VALUE_ACTIVE) {
-                 updateFrequency(1);
-                } else {
-                  updateFrequency(-1);
-                }
             }
-
         }
-
     }
     gpiod_edge_event_buffer_free(buffer);
     return NULL;
@@ -104,9 +94,9 @@ void encoder_init(int pinA, int pinB) {
     pinA_offset = pinA;
     pinB_offset = pinB;
 
-    chip = gpiod_chip_open("/dev/gpiochip1");
+    chip = gpiod_chip_open("/dev/gpiochip3");
     if (!chip) {
-        perror("cannot open gpiochip1");
+        perror("cannot open gpiochip3");
         exit(EXIT_FAILURE);
     }
 
@@ -122,6 +112,12 @@ void encoder_init(int pinA, int pinB) {
     gpiod_line_settings_set_direction(settingsA, GPIOD_LINE_DIRECTION_INPUT);
     gpiod_line_settings_set_edge_detection(settingsA, GPIOD_LINE_EDGE_BOTH);
     gpiod_line_settings_set_direction(settingsB, GPIOD_LINE_DIRECTION_INPUT);
+    gpiod_line_settings_set_edge_detection(settingsB, GPIOD_LINE_EDGE_BOTH);
+    gpiod_line_settings_set_debounce_period_us(settingsA, DEBOUNCE_US);
+    gpiod_line_settings_set_debounce_period_us(settingsB, DEBOUNCE_US);
+
+    gpiod_line_settings_set_bias(settingsA, GPIOD_LINE_BIAS_PULL_UP);
+    gpiod_line_settings_set_bias(settingsB, GPIOD_LINE_BIAS_PULL_UP);
 
     uint32_t offsetA = pinA;
     uint32_t offsetB = pinB;

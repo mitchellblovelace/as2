@@ -21,8 +21,8 @@ extern void Terminal_cleanup(void);
 
 bool program_running = true;
 
-#define ENCODER_PIN_A 20
-#define ENCODER_PIN_B 21
+#define ENCODER_PIN_A 10
+#define ENCODER_PIN_B 9
 
 
 int main()
@@ -38,7 +38,7 @@ int main()
     UDP_init();
 
     while (program_running) {
-        sleep(0.1);
+        usleep(100 *1000);
 
         int targetHz = encoder_getFrequency();
         PWM_setFreq(targetHz);
