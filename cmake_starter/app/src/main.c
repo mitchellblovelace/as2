@@ -19,7 +19,7 @@
 extern void Terminal_init(void);
 extern void Terminal_cleanup(void);
 
-bool program_running = true;
+volatile bool program_running = true;
 
 #define ENCODER_PIN_A 10
 #define ENCODER_PIN_B 9

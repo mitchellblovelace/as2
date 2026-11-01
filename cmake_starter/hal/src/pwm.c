@@ -1,58 +1,134 @@
 #include "hal/pwm.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <pthread.h>
+#include <gpiod.h>
+#include <time.h>
 
-#define PWM_DIR "/sys/class/pwm/pwmchip0/pwm0"
+#define LED_CHIP_PATH "/dev/gpiochip3"
+#define LED_LINE_OFFSET 16
 
-static void write_to_file(const char* path, const char* value) {
-    FILE* f = fopen(path, "w");
-    if (!f) {
-        perror("Unable to open file");
-        exit(1);
+#define NS_PER_SEC 1000000000L
+#define DEFAULT_FREQ 10
+
+static struct gpiod_chip *chip = NULL;
+static struct gpiod_line_request *request = NULL;
+
+static pthread_t ledThread;
+static pthread_mutex_t freqMutex = PTHREAD_MUTEX_INITIALIZER;
+static int frequency = 0;
+static volatile bool running = false;
+
+static void set_led(bool on) {
+    gpiod_line_request_set_value(request, LED_LINE_OFFSET, on ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE);
+}
+
+static void add_ns(struct timespec *t, long ns) {
+    t->tv_nsec += ns;
+    while (t->tv_nsec >= NS_PER_SEC) {
+        t->tv_nsec -= NS_PER_SEC;
+        t->tv_sec++;
     }
-    fprintf(f, "%s", value);
-    fclose(f);
+}
+
+static void* ledThreadLoop(void* arg) {
+    (void)arg;
+    struct timespec next;
+    clock_gettime(CLOCK_MONOTONIC, &next);
+    bool ledOn = false;
+    int lastFrequency = -1;
+
+    while(running) {
+        pthread_mutex_lock(&freqMutex);
+        int hz = frequency;
+        pthread_mutex_unlock(&freqMutex);
+
+        if (hz <= 0) {
+            if (ledOn) {
+                set_led(false);
+                ledOn = false;
+            }
+            struct timespec pause = {0, 20 * 1000000L};
+            nanosleep(&pause, NULL);
+            continue;
+        }
+
+        if (hz != lastFrequency) {
+            clock_gettime(CLOCK_MONOTONIC, &next);
+            lastFrequency = hz;
+        }
+
+        ledOn = !ledOn;
+        set_led(ledOn);
+        add_ns(&next, NS_PER_SEC / (2 * hz));
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
+    }
+
+    set_led(false);
+    return NULL;
 }
 
 void PWM_init(void) {
-    PWM_setFreq(10); // default frequency 10 Hz per assignment requirements 
+    chip = gpiod_chip_open(LED_CHIP_PATH);
+    if (!chip) {
+        perror("Failed to open gpio chip for led");
+        exit(EXIT_FAILURE);
+    }
 
-    char path[128];
-    snprintf(path, sizeof(path), "%s/enable", PWM_DIR);
-    write_to_file(path, "1");
+    struct gpiod_line_settings *settings = gpiod_line_settings_new();
+    struct gpiod_line_config *line_config = gpiod_line_config_new();
+    if (!settings || !line_config) {
+        perror("Failed to allocate led line settings or config");
+        exit(EXIT_FAILURE);
+    }
+
+    gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_OUTPUT);
+    gpiod_line_settings_set_output_value(settings, GPIOD_LINE_VALUE_INACTIVE);
+
+    unsigned int offset = LED_LINE_OFFSET;
+    gpiod_line_config_add_line_settings(line_config, &offset, 1, settings);
+
+    request = gpiod_chip_request_lines(chip, NULL, line_config);
+
+    gpiod_line_settings_free(settings);
+    gpiod_line_config_free(line_config);
+
+    if (!request) {
+        perror("Failed to request led line");
+        exit(EXIT_FAILURE);
+    }
+
+    frequency = DEFAULT_FREQ;
+
+    running = true;
+    if (pthread_create(&ledThread, NULL, ledThreadLoop, NULL) != 0) {
+        perror("Failed to create led thread");
+        exit(EXIT_FAILURE);
+    }
 }
 
 void PWM_setFreq(int hz) {
-    char period_path[128], duty_cycle_path[128], enable_path[128];
-
-    snprintf(period_path, sizeof(period_path), "%s/period", PWM_DIR);
-    snprintf(duty_cycle_path, sizeof(duty_cycle_path), "%s/duty_cycle", PWM_DIR);
-    snprintf(enable_path, sizeof(enable_path), "%s/enable", PWM_DIR);
-
-    if (hz <= 0) {
-        // turn off led 
-        write_to_file(enable_path, "0");
-        return;
+    if (hz < 0) {
+        hz = 0;
     }
 
-    int period_ns = 1000000000 / hz; // period in nanoseconds
-    int duty_cycle_ns = period_ns / 2; // 50% duty cycle
-
-    char buffer1[32], buffer2[32];
-    sprintf(buffer1, "%d", period_ns);
-    sprintf(buffer2, "%d", duty_cycle_ns);
-    
-    write_to_file(period_path, buffer1);
-
-    write_to_file(duty_cycle_path, "0");
-    write_to_file(period_path, buffer1); // write twice to ensure proper update
-    write_to_file(duty_cycle_path, buffer2); // write twice to ensure proper update
-
-
+    pthread_mutex_lock(&freqMutex);
+    if (hz != frequency) {
+        frequency = hz;
+    }
+    pthread_mutex_unlock(&freqMutex);
 }
 
 void PWM_cleanup(void) {
-    char enable_path[128];
-    snprintf(enable_path, sizeof(enable_path), "%s/enable", PWM_DIR);
-    write_to_file(enable_path, "0"); // disable PWM
+    running = false;
+    pthread_join(ledThread, NULL);
+
+    if (request) {
+        gpiod_line_request_release(request);
+    }
+
+    if (chip) {
+        gpiod_chip_close(chip);
+    }
 }

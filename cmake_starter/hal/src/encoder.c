@@ -24,7 +24,7 @@ static int pinB_offset = -1;
 static pthread_t encoderThread;
 pthread_mutex_t freqMutex = PTHREAD_MUTEX_INITIALIZER;
 static int frequency = INIT_FREQ;
-static bool running = true;
+static volatile bool running = true;
 
 static void updateFrequency(int change) {
     pthread_mutex_lock(&freqMutex);
@@ -96,7 +96,7 @@ void encoder_init(int pinA, int pinB) {
 
     chip = gpiod_chip_open("/dev/gpiochip3");
     if (!chip) {
-        perror("cannot open gpiochip3");
+        perror("Failed to open gpiochip3");
         exit(EXIT_FAILURE);
     }
 

@@ -8,15 +8,16 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <time.h>
 
 #define UDP_PORT 12345
 #define BUFFER_SIZE 1500
 
 static pthread_t udp_thread_id;
 static int socket_descriptor;
-static bool is_initialized = false;
+static volatile bool is_initialized = false;
 static char last_command[BUFFER_SIZE] = "";
-extern bool program_running; 
+extern volatile bool program_running; 
 
 static void* udp_thread_function(void* arg) {
     (void)arg;
@@ -28,6 +29,8 @@ static void* udp_thread_function(void* arg) {
 
     socket_descriptor = socket(AF_INET, SOCK_DGRAM, 0);
     bind(socket_descriptor, (struct sockaddr*)&sin, sizeof(sin));
+    struct timeval timeout = {1, 0};
+    setsockopt(socket_descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
     struct sockaddr_in sinRemote;
     unsigned int sinRemoteLen = sizeof(sinRemote);
@@ -95,9 +98,9 @@ static void* udp_thread_function(void* arg) {
                 char temp[32];
 
                 if ((i+1) % 10 == 0 || i == size - 1) {
-                    snprintf(temp, sizeof(temp), "%.3f\n", history[i]);
+                    snprintf(temp, sizeof(temp), "%.3f, \n", history[i]);
                 } else {
-                    snprintf(temp, sizeof(temp), "%.3f ", history[i]);
+                    snprintf(temp, sizeof(temp), "%.3f, ", history[i]);
                 }
 
                 if (offset + strlen(temp) >= BUFFER_SIZE) {
