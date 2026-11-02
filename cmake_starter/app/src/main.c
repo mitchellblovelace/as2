@@ -14,8 +14,6 @@
 #include <pthread.h>
 #include <time.h>
 
-// #include "hal/periodTimer.h" when implemented
-// rotary and terminal not implemented yet...
 extern void Terminal_init(void);
 extern void Terminal_cleanup(void);
 
@@ -37,6 +35,7 @@ int main()
     Terminal_init();
     UDP_init();
 
+    // encoder controls frequency
     while (program_running) {
         usleep(100 *1000);
 
